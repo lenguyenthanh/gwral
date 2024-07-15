@@ -1,0 +1,9 @@
+.bloop/
+.metals/
+logs
+target
+/project/project
+/.project
+.sbtopts
+.env
+.scala-build
