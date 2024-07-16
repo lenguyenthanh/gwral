@@ -3,8 +3,6 @@
 //> using dep io.github.kirill5k::mongo4cats-core:0.7.8
 //> using dep io.github.kirill5k::mongo4cats-circe:0.7.8
 //> using dep is.cir::ciris:3.6.0
-//> using dep com.outr::scribe-cats:3.15.0
-//> using dep com.outr::scribe:3.15.0
 //> using dep io.circe::circe-core:0.14.9
 //> using repository https://raw.githubusercontent.com/lichess-org/lila-maven/master
 //> using dep org.lichess::scalachess:16.1.0
@@ -26,7 +24,7 @@ import mongo4cats.database.MongoDatabase
 import mongo4cats.models.collection.ChangeStreamDocument
 import mongo4cats.operations.{ Aggregate, Filter, Projection }
 import scala.concurrent.duration.*
-import scribe.cats.io.*
+import com.mongodb.client.model.changestream.FullDocument
 
 object WorldRecord extends IOApp.Simple:
 
