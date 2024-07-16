@@ -45,7 +45,7 @@ object cli
       config      <- Config.load.toResource
       mongoClient <- config.makeClient
       games       <- mongoClient.getCollectionWithCodec[DbGame]("game5").toResource
-      watcher = GameWatcher(games)
+      watcher = GameWatcher(games, args.debug)
       _ <- watcher
         .watch(args.since, args.until)
         .compile
@@ -70,12 +70,12 @@ trait GameWatcher:
 
 object GameWatcher:
 
-  def apply(games: MongoCollection[IO, DbGame]): GameWatcher = new:
+  def apply(games: MongoCollection[IO, DbGame], debug: Boolean): GameWatcher = new:
 
     def watch(since: Instant, until: Instant): fs2.Stream[IO, List[DbGame]] =
       changes(since, until)
         .evalTap: events =>
-          IO.println(events)
+          IO.println(events).whenA(debug)
 
     private def changes(
         since: Instant,
@@ -92,9 +92,9 @@ object GameWatcher:
         // .evalTap(_.traverse_(x => IO.println(s"received $x")))
         .map(_.toList.map(_.fullDocument).flatten)
         // .evalTap(_.traverse_(x => IO.println(s"full $x")))
-        .evalTap(_.traverse_(x => IO.println(s"clock ${x.clock}")))
+        .evalTap(_.traverse_(x => IO.println(s"clock ${x.clock}")).whenA(debug))
         .map(_.filter(_.validClock))
-        .evalTap(_.traverse_(x => IO.println(s"valid clock ${x.clock}")))
+        .evalTap(_.traverse_(x => IO.println(s"valid clock ${x.clock}")).whenA(debug))
 
     private def aggreate(since: Instant, until: Instant) =
       // games have at least 15 moves
@@ -118,11 +118,11 @@ object GameWatcher:
           .and(Filter.lte("fullDocument.ua", until))
 
       val gameFilter = standardFilter
-        .and(turnsFilter)
-        .and(ratedFilter)
-        .and(noAiFilter)
-        .and(statusFilter)
-        .and(playedTimeFilter)
+        // .and(turnsFilter)
+        // .and(ratedFilter)
+        // .and(noAiFilter)
+        // .and(statusFilter)
+        // .and(playedTimeFilter)
 
       Aggregate.matchBy(gameFilter)
 
@@ -177,7 +177,8 @@ extension (config: chess.Clock.Config)
   // over 60 moves
   def estimateTotalSecondsOver60Moves = config.limitSeconds.value + 60 * config.incrementSeconds.value
 
-  // Games are equal to or longer than 3+2 / 5+0 or equivalent over 60 moves (e.g., 4+1, 0+30, etc), but not more than 8h (e.g., no 240+60)
+  // Games are equal to or longer than 3+2 / 5+0 or equivalent over 60 moves (e.g., 4+1, 0+30, etc),
+  // but not more than 8h (e.g., no 240+60)
   def sastify: Boolean =
     minTotalSeconds <= config.estimateTotalSecondsOver60Moves &&
       config.estimateTotalSecondsOver60Moves <= maxTotalSeconds
@@ -198,7 +199,7 @@ object ClockDecoder:
         case Array(b1, b2) => Clock.Config(readClockLimit(b1), Clock.IncrementSeconds(b2)).some
         case _             => None
 
-case class Args(since: Instant, until: Instant)
+case class Args(since: Instant, until: Instant, debug: Boolean)
 object Args:
 
   import cats.data.Validated
@@ -216,7 +217,15 @@ object Args:
         help = "optional upper bound time",
         short = "u",
         metavar = "time in epoch seconds"
+      ),
+    Opts
+      .flag(
+        long = "debug",
+        help = "print debug logs",
+        short = "d"
       )
+      .orNone
+      .map(_.isDefined)
   ).mapN(Args.apply)
     .mapValidated(x =>
       if x.until.isAfter(x.since) then Validated.valid(x)
