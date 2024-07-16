@@ -132,6 +132,8 @@ object GameWatcher:
         .exists("updateDescription.updatedFields.s")
         .or(Filter.notExists("updateDescription"))
 
+      val clockFilter = Filter.exists("fullDocument.c")
+
       val gameFilter = standardFilter
         .and(turnsFilter)
         .and(ratedFilter)
@@ -139,12 +141,13 @@ object GameWatcher:
         .and(statusFilter)
         .and(updatedStatusOnlyFilter)
         .and(playedTimeFilter)
+        .and(clockFilter)
 
       Aggregate.matchBy(gameFilter)
 
 case class DbGame(
     id: String,                     // _id
-    players: List[String],          // us
+    players: Option[List[String]],  // us
     whitePlayer: DbPlayer,          // p0
     blackPlayer: DbPlayer,          // p1
     status: Int,                    // s
