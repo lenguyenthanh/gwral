@@ -24,18 +24,30 @@ import mongo4cats.operations.{ Aggregate, Filter }
 import scala.concurrent.duration.*
 import com.mongodb.client.model.changestream.FullDocument
 
-object WorldRecord extends IOApp.Simple:
+import com.monovore.decline.*
+import com.monovore.decline.effect.*
 
-  def run = app.useForever
+object cli
+    extends CommandIOApp(
+      name = "gwral",
+      header = "CLI tool for Guinness World Record attempt",
+      version = "1.0.0"
+    ):
 
-  def app =
+  override def main: Opts[IO[ExitCode]] =
+    Args.parse.map(x => execute(x).as(ExitCode.Success))
+
+  def execute(args: Args): IO[Unit] =
+    resource(args).useForever
+
+  def resource(args: Args) =
     for
       config      <- Config.load.toResource
       mongoClient <- config.makeClient
       games       <- mongoClient.getCollectionWithCodec[DbGame]("game5").toResource
       watcher = GameWatcher(games)
       _ <- watcher
-        .watch(Instant.now.minusSeconds(60), Instant.now.plusSeconds(1000000))
+        .watch(args.since, args.until)
         .compile
         .drain
         .toResource
@@ -185,3 +197,34 @@ object ClockDecoder:
       ba.take(2).map(toInt) match
         case Array(b1, b2) => Clock.Config(readClockLimit(b1), Clock.IncrementSeconds(b2)).some
         case _             => None
+
+case class Args(since: Instant, until: Instant)
+object Args:
+
+  import cats.data.Validated
+
+  def parse = (
+    Opts.option[Instant](
+      long = "since",
+      help = "fetch all games since this time",
+      short = "s",
+      metavar = "time in epoch seconds"
+    ),
+    Opts
+      .option[Instant](
+        long = "until",
+        help = "optional upper bound time",
+        short = "u",
+        metavar = "time in epoch seconds"
+      )
+  ).mapN(Args.apply)
+    .mapValidated(x =>
+      if x.until.isAfter(x.since) then Validated.valid(x)
+      else Validated.invalidNel(s"since: ${x.since} must be before until: ${x.until}")
+    )
+
+  given Argument[Instant] =
+    Argument.from("time in epoch seconds"): str =>
+      str.toLongOption.fold(Validated.invalidNel(s"Invalid epoch seconds: $str"))(x =>
+        Validated.valid(Instant.ofEpochSecond(x))
+      )

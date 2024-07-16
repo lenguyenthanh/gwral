@@ -7,3 +7,6 @@ target
 .sbtopts
 .env
 .scala-build
+cli
+count.txt
+games.csv
