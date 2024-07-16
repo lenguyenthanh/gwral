@@ -100,9 +100,9 @@ object GameWatcher:
         .fullDocument(FullDocument.UPDATE_LOOKUP) // this is required for update event
         .boundedStream(batchSize)
         .groupWithin(batchSize, timeWindow.second) // config.windows
-        .evalTap(_.traverse_(x => info"received $x"))
+        .evalTap(_.traverse_(x => info"received $x").whenA(debug))
+        .evalTap(_.filter(_.fullDocument.exists(_.validClock)).traverse_(x => info"count $x"))
         .map(_.toList.map(_.fullDocument).flatten)
-        // .evalTap(_.traverse_(x => IO.println(s"full $x")))
         .evalTap(_.traverse_(x => info"clock ${x.clock}").whenA(debug))
         .map(_.filter(_.validClock))
         .evalTap(_.traverse_(x => info"valid clock ${x.clock}").whenA(debug))
@@ -128,11 +128,16 @@ object GameWatcher:
           .gte("fullDocument.ca", since)
           .and(Filter.lte("fullDocument.ua", until))
 
+      val updatedStatusOnlyFilter = Filter
+        .exists("updateDescription.updatedFields.s")
+        .or(Filter.notExists("updateDescription"))
+
       val gameFilter = standardFilter
         .and(turnsFilter)
         .and(ratedFilter)
         .and(noAiFilter)
         .and(statusFilter)
+        .and(updatedStatusOnlyFilter)
         .and(playedTimeFilter)
 
       Aggregate.matchBy(gameFilter)
