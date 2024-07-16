@@ -91,8 +91,8 @@ object GameWatcher:
         since: Instant,
         until: Instant
     ): fs2.Stream[IO, List[DbGame]] =
-      val batchSize  = 100
-      val timeWindow = 1
+      val batchSize  = 1000
+      val timeWindow = 10
       games
         .watch(aggreate(since, until))
         .startAtOperationTime(BsonTimestamp(since.getEpochSecond.toInt, 1))
