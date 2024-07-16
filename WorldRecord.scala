@@ -72,7 +72,6 @@ object GameWatcher:
     // .and(Filter.eq("fullDocument.p0.ai", 0)) // 0 or not exist
 
     val aggreate =
-      // Aggregate.matchBy(Filter.empty)
       Aggregate.matchBy(gameFilter)
 
     private def changes(
@@ -106,9 +105,7 @@ case class DbGame(
     createdAt: Instant,             // ca
     moveAt: Instant                 // ua
 ):
-  def clock =
-    val f = ClockDecoder.clock(createdAt).read(encodedClock, whitePlayer.isBerserked, blackPlayer.isBerserked)
-    (f(chess.Color.White), (f(chess.Color.Black))).mapN((_, _))
+  def clock = ClockDecoder.read(encodedClock)
 
 object DbGame:
 
@@ -142,64 +139,12 @@ object DbPlayer:
 
 object ClockDecoder:
   import chess.*
-  def readClockLimit(i: Int) = Clock.LimitSeconds(if i < 181 then i * 60 else (i - 180) * 15)
-
-  def readConfig(ba: Array[Byte]): Option[Clock.Config] =
-    ba match
-      case Array(b1, b2, _*) => Clock.Config(readClockLimit(b1), Clock.IncrementSeconds(b2)).some
-      case _                 => None
+  private def readClockLimit(i: Int) = Clock.LimitSeconds(if i < 181 then i * 60 else (i - 180) * 15)
 
   private inline def toInt(inline b: Byte): Int = b & 0xff
-  private val int23Max                          = 1 << 23
 
-  def readInt(b1: Int, b2: Int, b3: Int, b4: Int): Int =
-    (b1 << 24) | (b2 << 16) | (b3 << 8) | b4
-
-  def readInt24(b1: Int, b2: Int, b3: Int): Int = (b1 << 16) | (b2 << 8) | b3
-  def readSignedInt24(b1: Int, b2: Int, b3: Int): Int =
-    val i = readInt24(b1, b2, b3)
-    if i > int23Max then int23Max - i else i
-
-  object clock:
-    def apply(start: Instant) = new clock(Timestamp(start.toEpochMilli))
-
-  final class clock(start: Timestamp):
-
-    def legacyElapsed(clock: Clock, color: Color) =
-      clock.limit - clock.players(color).remaining
-
-    def computeRemaining(config: Clock.Config, legacyElapsed: Centis) =
-      config.limit - legacyElapsed
-
-    private def readTimer(l: Int) =
-      Option.when(l != 0)(start + Centis(l))
-
-    // We only need to return Clock.Config
-    // ByColor[Option[ClockConfig]] is a better idea
-    def read(ba: Array[Byte], whiteBerserk: Boolean, blackBerserk: Boolean): Color => Option[Clock] =
-      color =>
-        val ia = ba.map(toInt)
-
-        // ba.size might be greater than 12 with 5 bytes timers
-        // ba.size might be 8 if there was no timer.
-        // #TODO remove 5 byte timer case! But fix the DB first!
-        // val timer = if ia.lengthIs == 12 then readTimer(readInt(ia(8), ia(9), ia(10), ia(11))) else None
-
-        ia match
-          case Array(b1, b2, b3, b4, b5, b6, b7, b8, _*) =>
-            val config      = Clock.Config(readClockLimit(b1), Clock.IncrementSeconds(b2))
-            val legacyWhite = Centis(readSignedInt24(b3, b4, b5))
-            val legacyBlack = Centis(readSignedInt24(b6, b7, b8))
-            val players = ByColor((whiteBerserk, legacyWhite), (blackBerserk, legacyBlack))
-              .map: (berserk, legacy) =>
-                ClockPlayer
-                  .withConfig(config)
-                  .copy(berserk = berserk)
-                  .setRemaining(computeRemaining(config, legacy))
-            Clock(
-              config = config,
-              color = color,
-              players = players,
-              timer = None
-            ).some
-          case _ => None
+  def read(ba: Array[Byte]): Option[ByColor[Clock.Config]] =
+    ByColor: color =>
+      ba.map(toInt) match
+        case Array(b1, b2, _*) => Clock.Config(readClockLimit(b1), Clock.IncrementSeconds(b2)).some
+        case _                 => None
