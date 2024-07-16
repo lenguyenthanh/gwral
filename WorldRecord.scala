@@ -16,13 +16,11 @@ import com.mongodb.ReadPreference
 import com.mongodb.client.model.changestream.OperationType.*
 import io.circe.*
 import java.time.Instant
-import mongo4cats.bson.Document
 import mongo4cats.circe.*
 import mongo4cats.client.MongoClient
 import mongo4cats.collection.MongoCollection
 import mongo4cats.database.MongoDatabase
-import mongo4cats.models.collection.ChangeStreamDocument
-import mongo4cats.operations.{ Aggregate, Filter, Projection }
+import mongo4cats.operations.{ Aggregate, Filter }
 import scala.concurrent.duration.*
 import com.mongodb.client.model.changestream.FullDocument
 
@@ -50,8 +48,6 @@ object Config:
   private def name = env("MONGO_DATABASE").or(prop("mongo.database")).as[String]
   def load         = (uri, name).parMapN(MongoConfig.apply).load[IO]
 
-// TODO
-// filter
 trait GameWatcher:
   // watch change events from game5 collection
   def watch(since: Instant, until: Instant): fs2.Stream[IO, List[DbGame]]
@@ -65,11 +61,14 @@ object GameWatcher:
         .evalTap: events =>
           IO.println(events)
 
-    // 1 means standard
+    // games have at least 15 moves
+    val turnsFilter    = Filter.gte("fullDocument.t", 30)
     val standardFilter = Filter.eq("fullDocument.v", 1).or(Filter.notExists("fullDocument.v"))
+    val ratedFilter    = Filter.eq("fullDocument.va", true).or(Filter.notExists("fullDocument.va"))
+
     val gameFilter = standardFilter
-      // .and(Filter.eq("fullDocument.ra", true))
-      .and(Filter.gte("fullDocument.t", 30))
+      .and(turnsFilter)
+      .and(ratedFilter)
     // .and(Filter.eq("fullDocument.p0.ai", 0)) // 0 or not exist
 
     val aggreate =
@@ -141,11 +140,6 @@ object DbPlayer:
   given Decoder[DbPlayer] = Decoder.forProduct3("e", "d", "be")(DbPlayer.apply)
   given Encoder[DbPlayer] = Encoder.forProduct3("e", "d", "be")(p => (p.rating, p.ratingDiff, p.berserk))
 
-object F:
-  val variant = "v"
-  val turn    = "t"
-  val rated   = "va"
-
 object ClockDecoder:
   import chess.*
   def readClockLimit(i: Int) = Clock.LimitSeconds(if i < 181 then i * 60 else (i - 180) * 15)
@@ -158,11 +152,11 @@ object ClockDecoder:
   private inline def toInt(inline b: Byte): Int = b & 0xff
   private val int23Max                          = 1 << 23
 
-  def readInt(b1: Int, b2: Int, b3: Int, b4: Int) =
+  def readInt(b1: Int, b2: Int, b3: Int, b4: Int): Int =
     (b1 << 24) | (b2 << 16) | (b3 << 8) | b4
 
-  def readInt24(b1: Int, b2: Int, b3: Int) = (b1 << 16) | (b2 << 8) | b3
-  def readSignedInt24(b1: Int, b2: Int, b3: Int) =
+  def readInt24(b1: Int, b2: Int, b3: Int): Int = (b1 << 16) | (b2 << 8) | b3
+  def readSignedInt24(b1: Int, b2: Int, b3: Int): Int =
     val i = readInt24(b1, b2, b3)
     if i > int23Max then int23Max - i else i
 
