@@ -34,7 +34,11 @@ object WorldRecord extends IOApp.Simple:
       mongoClient <- config.makeClient
       games       <- mongoClient.getCollectionWithCodec[DbGame]("game5").toResource
       watcher = GameWatcher(games)
-      _ <- watcher.watch(Instant.now.minusSeconds(60), Instant.now.plusSeconds(1000000)).compile.drain.toResource
+      _ <- watcher
+        .watch(Instant.now.minusSeconds(60), Instant.now.plusSeconds(1000000))
+        .compile
+        .drain
+        .toResource
     yield ()
 
 case class MongoConfig(uri: String, name: String):
@@ -178,6 +182,6 @@ object ClockDecoder:
 
   def read(ba: Array[Byte]): Option[ByColor[Clock.Config]] =
     ByColor: color =>
-      ba.map(toInt) match
-        case Array(b1, b2, _*) => Clock.Config(readClockLimit(b1), Clock.IncrementSeconds(b2)).some
-        case _                 => None
+      ba.take(2).map(toInt) match
+        case Array(b1, b2) => Clock.Config(readClockLimit(b1), Clock.IncrementSeconds(b2)).some
+        case _             => None
