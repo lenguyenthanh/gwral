@@ -54,12 +54,8 @@ object cli
       _ <- info"Watching games from ${args.since} to ${args.until} in debug mode = ${args.debug}".toResource
       mongoClient <- config.makeClient
       games       <- mongoClient.getCollectionWithCodec[DbGame]("game5").toResource
-      watcher = GameWatcher(games, args.debug)
-      _ <- watcher
-        .watch(args.since, args.until)
-        .compile
-        .drain
-        .toResource
+      watcher     <- GameWatcher(games, args.debug).toResource
+      _           <- watcher.watch(args.since, args.until).toResource
     yield ()
 
 case class MongoConfig(uri: String, name: String):
@@ -75,14 +71,21 @@ object Config:
 
 trait GameWatcher:
   // watch change events from game5 collection
-  def watch(since: Instant, until: Instant): fs2.Stream[IO, List[DbGame]]
+  def watch(since: Instant, until: Instant): IO[Unit]
 
 object GameWatcher:
 
-  def apply(games: MongoCollection[IO, DbGame], debug: Boolean): GameWatcher = new:
+  def apply(games: MongoCollection[IO, DbGame], debug: Boolean): IO[GameWatcher] =
+    Ref.of[IO, Int](0).map(ref => GameWatcher(games, debug, ref))
 
-    def watch(since: Instant, until: Instant): fs2.Stream[IO, List[DbGame]] =
+  def apply(games: MongoCollection[IO, DbGame], debug: Boolean, ref: Ref[IO, Int]): GameWatcher = new:
+
+    def watch(since: Instant, until: Instant): IO[Unit] =
       changes(since, until)
+        .evalTap: games =>
+          (Writer.writeGames(games), Writer.writeCount(ref, games.size)).parTupled.void
+        .compile
+        .drain
 
     private def changes(
         since: Instant,
@@ -179,6 +182,28 @@ object DbGame:
 
 case class DbPlayer(rating: Option[Int], ratingDiff: Option[Int], berserk: Option[Boolean]):
   def isBerserked = berserk.contains(true)
+
+object Writer:
+
+  import fs2.io.file.{ Files, Flags, Path }
+
+  def writeGames(games: List[DbGame]): IO[Unit] =
+    fs2.Stream
+      .emits(games)
+      .map(x => List(x.id, x.createdAt.getEpochSecond, x.moveAt.getEpochSecond).mkString(","))
+      .through(Files[IO].writeUtf8Lines(Path("games.csv"), Flags.Append))
+      .compile
+      .drain
+
+  def writeCount(ref: Ref[IO, Int], size: Int): IO[Unit] =
+    ref
+      .updateAndGet(_ + size)
+      .flatMap: total =>
+        fs2.Stream
+          .emit(total.toString)
+          .through(Files[IO].writeUtf8(Path("count.txt")))
+          .compile
+          .drain
 
 extension (config: chess.Clock.Config)
 
