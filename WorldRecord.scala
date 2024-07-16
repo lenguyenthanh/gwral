@@ -1,4 +1,4 @@
-//> using scala 3.6.nightly
+//> using scala 3.5.0-RC4
 //> using toolkit typelevel:0.1.27
 //> using dep io.github.kirill5k::mongo4cats-core:0.7.8
 //> using dep io.github.kirill5k::mongo4cats-circe:0.7.8
