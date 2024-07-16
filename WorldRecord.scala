@@ -132,7 +132,10 @@ object GameWatcher:
         .exists("updateDescription.updatedFields.s")
         .or(Filter.notExists("updateDescription"))
 
-      val clockFilter = Filter.exists("fullDocument.c")
+      // required clock config
+      val clockFilter        = Filter.exists("fullDocument.c")
+      // only human plays
+      val noImportGameFilter = Filter.notExists("fullDocument.pgni")
 
       val gameFilter = standardFilter
         .and(turnsFilter)
@@ -142,6 +145,7 @@ object GameWatcher:
         .and(updatedStatusOnlyFilter)
         .and(playedTimeFilter)
         .and(clockFilter)
+        .and(noImportGameFilter)
 
       Aggregate.matchBy(gameFilter)
 
