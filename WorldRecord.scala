@@ -1,12 +1,12 @@
 //> using scala 3.5.0-RC4
 //> using toolkit typelevel:0.1.27
-//> using dep io.github.kirill5k::mongo4cats-core:0.7.8
-//> using dep io.github.kirill5k::mongo4cats-circe:0.7.8
-//> using dep is.cir::ciris:3.6.0
+//> using dep ch.qos.logback:logback-classic:1.5.6
 //> using dep io.circe::circe-core:0.14.9
+//> using dep io.github.kirill5k::mongo4cats-circe:0.7.8
+//> using dep io.github.kirill5k::mongo4cats-core:0.7.8
+//> using dep is.cir::ciris:3.6.0
 //> using repository https://raw.githubusercontent.com/lichess-org/lila-maven/master
 //> using dep org.lichess::scalachess:16.1.0
-//> using dep ch.qos.logback:logback-classic:1.5.6
 
 //> using resourceDir .
 
@@ -16,7 +16,10 @@ import cats.effect.*
 import cats.syntax.all.*
 import ciris.*
 import com.mongodb.ReadPreference
+import com.mongodb.client.model.changestream.FullDocument
 import com.mongodb.client.model.changestream.OperationType.*
+import com.monovore.decline.*
+import com.monovore.decline.effect.*
 import io.circe.*
 import java.time.Instant
 import mongo4cats.circe.*
@@ -25,14 +28,10 @@ import mongo4cats.collection.MongoCollection
 import mongo4cats.database.MongoDatabase
 import mongo4cats.operations.{ Aggregate, Filter }
 import org.bson.BsonTimestamp
-import scala.concurrent.duration.*
-
-import com.monovore.decline.*
-import com.monovore.decline.effect.*
-import com.mongodb.client.model.changestream.FullDocument
 import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.typelevel.log4cats.syntax.*
+import scala.concurrent.duration.*
 
 given Logger[IO] = Slf4jLogger.getLogger[IO]
 
