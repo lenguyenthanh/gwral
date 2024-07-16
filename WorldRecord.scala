@@ -7,7 +7,7 @@
 //> using repository https://raw.githubusercontent.com/lichess-org/lila-maven/master
 //> using dep org.lichess::scalachess:16.1.0
 
-// //> using options -Wunused:all
+//> using options -Wunused:all
 
 import cats.effect.*
 import cats.syntax.all.*
