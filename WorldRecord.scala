@@ -61,29 +61,6 @@ object GameWatcher:
         .evalTap: events =>
           IO.println(events)
 
-    // games have at least 15 moves
-    val turnsFilter    = Filter.gte("fullDocument.t", 30)
-    val standardFilter = Filter.eq("fullDocument.v", 1).or(Filter.notExists("fullDocument.v"))
-    val ratedFilter    = Filter.eq("fullDocument.va", true).or(Filter.notExists("fullDocument.va"))
-    val noAiFilter =
-      Filter
-        .eq("fullDocument.p0.ai", 0)
-        .or(Filter.notExists("fullDocument.p0.ai"))
-        .and(Filter.eq("fullDocument.p1.ai", 0).or(Filter.notExists("fullDocument.p1.ai")))
-
-    // Filter games that finished with Mate, Resign, Stalemate, Draw, Outoftime, Timeout
-    // https://github.com/lichess-org/scalachess/blob/master/core/src/main/scala/Status.scala#L18-L23
-    val statusFilter = Filter.in("fullDocument.s", List(30, 31, 32, 33, 34, 35))
-
-    val gameFilter = standardFilter
-      .and(turnsFilter)
-      .and(ratedFilter)
-      .and(noAiFilter)
-      .and(statusFilter)
-
-    val aggreate =
-      Aggregate.matchBy(gameFilter)
-
     private def changes(
         since: Instant,
         until: Instant
@@ -91,7 +68,7 @@ object GameWatcher:
       val batchSize  = 100
       val timeWindow = 1
       games
-        .watch(aggreate)
+        .watch(aggreate(since, until))
         .batchSize(batchSize)                     // config.batchSize
         .fullDocument(FullDocument.UPDATE_LOOKUP) // this is required for update event
         .boundedStream(batchSize)
@@ -100,6 +77,36 @@ object GameWatcher:
         .map(_.toList.map(_.fullDocument).flatten)
         .evalTap(_.traverse_(x => IO.println(s"full $x")))
         .evalTap(_.traverse_(x => IO.println(s"clock ${x.clock}")))
+
+    private def aggreate(since: Instant, until: Instant) =
+      // games have at least 15 moves
+      val turnsFilter    = Filter.gte("fullDocument.t", 30)
+      val standardFilter = Filter.eq("fullDocument.v", 1).or(Filter.notExists("fullDocument.v"))
+      val ratedFilter    = Filter.eq("fullDocument.va", true).or(Filter.notExists("fullDocument.va"))
+      val noAiFilter =
+        Filter
+          .eq("fullDocument.p0.ai", 0)
+          .or(Filter.notExists("fullDocument.p0.ai"))
+          .and(Filter.eq("fullDocument.p1.ai", 0).or(Filter.notExists("fullDocument.p1.ai")))
+
+      // Filter games that finished with Mate, Resign, Stalemate, Draw, Outoftime, Timeout
+      // https://github.com/lichess-org/scalachess/blob/master/core/src/main/scala/Status.scala#L18-L23
+      val statusFilter = Filter.in("fullDocument.s", List(30, 31, 32, 33, 34, 35))
+
+      // filter games that played and ended between since and until
+      val playedTimeFilter =
+        Filter
+          .gte("fullDocument.ca", since)
+          .and(Filter.lte("fullDocument.au", until))
+
+      val gameFilter = standardFilter
+        .and(turnsFilter)
+        .and(ratedFilter)
+        .and(noAiFilter)
+        .and(statusFilter)
+        .and(playedTimeFilter)
+
+      Aggregate.matchBy(gameFilter)
 
 case class DbGame(
     id: String,                     // _id
