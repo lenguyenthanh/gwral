@@ -99,7 +99,7 @@ object GameWatcher:
       val playedTimeFilter =
         Filter
           .gte("fullDocument.ca", since)
-          .and(Filter.lte("fullDocument.au", until))
+          .and(Filter.lte("fullDocument.ua", until))
 
       val gameFilter = standardFilter
         .and(turnsFilter)
