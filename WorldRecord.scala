@@ -6,6 +6,9 @@
 //> using dep io.circe::circe-core:0.14.9
 //> using repository https://raw.githubusercontent.com/lichess-org/lila-maven/master
 //> using dep org.lichess::scalachess:16.1.0
+//> using dep ch.qos.logback:logback-classic:1.5.6
+
+//> using resourceDir .
 
 //> using options -Wunused:all
 
@@ -21,11 +24,17 @@ import mongo4cats.client.MongoClient
 import mongo4cats.collection.MongoCollection
 import mongo4cats.database.MongoDatabase
 import mongo4cats.operations.{ Aggregate, Filter }
+import org.bson.BsonTimestamp
 import scala.concurrent.duration.*
-import com.mongodb.client.model.changestream.FullDocument
 
 import com.monovore.decline.*
 import com.monovore.decline.effect.*
+import com.mongodb.client.model.changestream.FullDocument
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.syntax.*
+
+given Logger[IO] = Slf4jLogger.getLogger[IO]
 
 object cli
     extends CommandIOApp(
@@ -42,7 +51,8 @@ object cli
 
   def resource(args: Args) =
     for
-      config      <- Config.load.toResource
+      config <- Config.load.toResource
+      _ <- info"Watching games from ${args.since} to ${args.until} in debug mode = ${args.debug}".toResource
       mongoClient <- config.makeClient
       games       <- mongoClient.getCollectionWithCodec[DbGame]("game5").toResource
       watcher = GameWatcher(games, args.debug)
@@ -74,8 +84,6 @@ object GameWatcher:
 
     def watch(since: Instant, until: Instant): fs2.Stream[IO, List[DbGame]] =
       changes(since, until)
-        .evalTap: events =>
-          IO.println(events).whenA(debug)
 
     private def changes(
         since: Instant,
@@ -85,16 +93,17 @@ object GameWatcher:
       val timeWindow = 1
       games
         .watch(aggreate(since, until))
+        .startAtOperationTime(BsonTimestamp(since.getEpochSecond.toInt, 1))
         .batchSize(batchSize)                     // config.batchSize
         .fullDocument(FullDocument.UPDATE_LOOKUP) // this is required for update event
         .boundedStream(batchSize)
         .groupWithin(batchSize, timeWindow.second) // config.windows
-        // .evalTap(_.traverse_(x => IO.println(s"received $x")))
+        .evalTap(_.traverse_(x => info"received $x"))
         .map(_.toList.map(_.fullDocument).flatten)
         // .evalTap(_.traverse_(x => IO.println(s"full $x")))
-        .evalTap(_.traverse_(x => IO.println(s"clock ${x.clock}")).whenA(debug))
+        .evalTap(_.traverse_(x => info"clock ${x.clock}").whenA(debug))
         .map(_.filter(_.validClock))
-        .evalTap(_.traverse_(x => IO.println(s"valid clock ${x.clock}")).whenA(debug))
+        .evalTap(_.traverse_(x => info"valid clock ${x.clock}").whenA(debug))
 
     private def aggreate(since: Instant, until: Instant) =
       // games have at least 15 moves
@@ -118,11 +127,11 @@ object GameWatcher:
           .and(Filter.lte("fullDocument.ua", until))
 
       val gameFilter = standardFilter
-        // .and(turnsFilter)
-        // .and(ratedFilter)
-        // .and(noAiFilter)
-        // .and(statusFilter)
-        // .and(playedTimeFilter)
+        .and(turnsFilter)
+        .and(ratedFilter)
+        .and(noAiFilter)
+        .and(statusFilter)
+        .and(playedTimeFilter)
 
       Aggregate.matchBy(gameFilter)
 
