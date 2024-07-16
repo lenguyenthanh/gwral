@@ -65,15 +65,29 @@ object GameWatcher:
         .evalTap: events =>
           IO.println(events)
 
+    // 1 means standard
+    val standardFilter = Filter.eq("fullDocument.v", 1).or(Filter.notExists("fullDocument.v"))
+    val gameFilter = standardFilter
+      // .and(Filter.eq("fullDocument.ra", true))
+      .and(Filter.gte("fullDocument.t", 30))
+    // .and(Filter.eq("fullDocument.p0.ai", 0)) // 0 or not exist
+
+    val aggreate =
+      // Aggregate.matchBy(Filter.empty)
+      Aggregate.matchBy(gameFilter)
+
     private def changes(
         since: Instant,
         until: Instant
     ): fs2.Stream[IO, List[DbGame]] =
-      val batchSize = 100
-      games.watch
-        .batchSize(batchSize) // config.batchSize
+      val batchSize  = 100
+      val timeWindow = 1
+      games
+        .watch(aggreate)
+        .batchSize(batchSize)                     // config.batchSize
+        .fullDocument(FullDocument.UPDATE_LOOKUP) // this is required for update event
         .boundedStream(batchSize)
-        .groupWithin(batchSize, 1.second) // config.windows
+        .groupWithin(batchSize, timeWindow.second) // config.windows
         .evalTap(_.traverse_(x => IO.println(s"received $x")))
         .map(_.toList.map(_.fullDocument).flatten)
         .evalTap(_.traverse_(x => IO.println(s"full $x")))
@@ -90,19 +104,20 @@ case class DbGame(
     encodedWhiteClock: Array[Byte], // cw
     encodedBlackClock: Array[Byte], // cb
     turn: Int,                      // t
-    createdAt: Instant
+    createdAt: Instant,             // ca
+    moveAt: Instant                 // ua
 ):
   def clock =
-    val f = ClockReader.clock(createdAt).read(encodedClock, whitePlayer.isBerserked, blackPlayer.isBerserked)
+    val f = ClockDecoder.clock(createdAt).read(encodedClock, whitePlayer.isBerserked, blackPlayer.isBerserked)
     (f(chess.Color.White), (f(chess.Color.Black))).mapN((_, _))
 
 object DbGame:
 
   given Decoder[DbGame] =
-    Decoder.forProduct11("_id", "us", "p0", "p1", "s", "hp", "c", "cw", "cb", "t", "ca")(DbGame.apply)
+    Decoder.forProduct12("_id", "us", "p0", "p1", "s", "hp", "c", "cw", "cb", "t", "ca", "ua")(DbGame.apply)
 
   given Encoder[DbGame] =
-    Encoder.forProduct11("_id", "us", "p0", "p1", "s", "hp", "c", "cw", "cb", "t", "ca")(g =>
+    Encoder.forProduct12("_id", "us", "p0", "p1", "s", "hp", "c", "cw", "cb", "t", "ca", "ua")(g =>
       (
         g.id,
         g.players,
@@ -114,7 +129,8 @@ object DbGame:
         g.encodedWhiteClock,
         g.encodedBlackClock,
         g.turn,
-        g.createdAt
+        g.createdAt,
+        g.moveAt
       )
     )
 
@@ -125,8 +141,12 @@ object DbPlayer:
   given Decoder[DbPlayer] = Decoder.forProduct3("e", "d", "be")(DbPlayer.apply)
   given Encoder[DbPlayer] = Encoder.forProduct3("e", "d", "be")(p => (p.rating, p.ratingDiff, p.berserk))
 
-object ClockReader:
-  def x = 1
+object F:
+  val variant = "v"
+  val turn    = "t"
+  val rated   = "va"
+
+object ClockDecoder:
   import chess.*
   def readClockLimit(i: Int) = Clock.LimitSeconds(if i < 181 then i * 60 else (i - 180) * 15)
 
@@ -160,6 +180,8 @@ object ClockReader:
     private def readTimer(l: Int) =
       Option.when(l != 0)(start + Centis(l))
 
+    // We only need to return Clock.Config
+    // ByColor[Option[ClockConfig]] is a better idea
     def read(ba: Array[Byte], whiteBerserk: Boolean, blackBerserk: Boolean): Color => Option[Clock] =
       color =>
         val ia = ba.map(toInt)
