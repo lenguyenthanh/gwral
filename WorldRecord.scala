@@ -34,7 +34,7 @@ object WorldRecord extends IOApp.Simple:
       mongoClient <- config.makeClient
       games       <- mongoClient.getCollectionWithCodec[DbGame]("game5").toResource
       watcher = GameWatcher(games)
-      _ <- watcher.watch(Instant.now.minusSeconds(60), Instant.now).compile.drain.toResource
+      _ <- watcher.watch(Instant.now.minusSeconds(60), Instant.now.plusSeconds(1000000)).compile.drain.toResource
     yield ()
 
 case class MongoConfig(uri: String, name: String):
@@ -73,10 +73,12 @@ object GameWatcher:
         .fullDocument(FullDocument.UPDATE_LOOKUP) // this is required for update event
         .boundedStream(batchSize)
         .groupWithin(batchSize, timeWindow.second) // config.windows
-        .evalTap(_.traverse_(x => IO.println(s"received $x")))
+        // .evalTap(_.traverse_(x => IO.println(s"received $x")))
         .map(_.toList.map(_.fullDocument).flatten)
-        .evalTap(_.traverse_(x => IO.println(s"full $x")))
+        // .evalTap(_.traverse_(x => IO.println(s"full $x")))
         .evalTap(_.traverse_(x => IO.println(s"clock ${x.clock}")))
+        .map(_.filter(_.validClock))
+        .evalTap(_.traverse_(x => IO.println(s"valid clock ${x.clock}")))
 
     private def aggreate(since: Instant, until: Instant) =
       // games have at least 15 moves
@@ -122,7 +124,20 @@ case class DbGame(
     createdAt: Instant,             // ca
     moveAt: Instant                 // ua
 ):
-  def clock = ClockDecoder.read(encodedClock)
+  def clock               = ClockDecoder.read(encodedClock)
+  def validClock: Boolean = clock.exists(_.forall(_.sastify))
+
+val minTotalSeconds = 5 * 60      // 5 minutes
+val maxTotalSeconds = 8 * 60 * 60 // 8 hours
+
+extension (config: chess.Clock.Config)
+
+  // over 60 moves
+  def estimateTotalSecondsOver60Moves = config.limitSeconds.value + 60 * config.incrementSeconds.value
+  // Games are equal to or longer than 3+2 / 5+0 or equivalent over 60 moves (e.g., 4+1, 0+30, etc), but not more than 8h (e.g., no 240+60)
+  def sastify: Boolean =
+    minTotalSeconds <= config.estimateTotalSecondsOver60Moves &&
+      config.estimateTotalSecondsOver60Moves <= maxTotalSeconds
 
 object DbGame:
 
