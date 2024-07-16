@@ -130,15 +130,6 @@ case class DbGame(
 val minTotalSeconds = 5 * 60      // 5 minutes
 val maxTotalSeconds = 8 * 60 * 60 // 8 hours
 
-extension (config: chess.Clock.Config)
-
-  // over 60 moves
-  def estimateTotalSecondsOver60Moves = config.limitSeconds.value + 60 * config.incrementSeconds.value
-  // Games are equal to or longer than 3+2 / 5+0 or equivalent over 60 moves (e.g., 4+1, 0+30, etc), but not more than 8h (e.g., no 240+60)
-  def sastify: Boolean =
-    minTotalSeconds <= config.estimateTotalSecondsOver60Moves &&
-      config.estimateTotalSecondsOver60Moves <= maxTotalSeconds
-
 object DbGame:
 
   given Decoder[DbGame] =
@@ -164,6 +155,16 @@ object DbGame:
 
 case class DbPlayer(rating: Option[Int], ratingDiff: Option[Int], berserk: Option[Boolean]):
   def isBerserked = berserk.contains(true)
+
+extension (config: chess.Clock.Config)
+
+  // over 60 moves
+  def estimateTotalSecondsOver60Moves = config.limitSeconds.value + 60 * config.incrementSeconds.value
+
+  // Games are equal to or longer than 3+2 / 5+0 or equivalent over 60 moves (e.g., 4+1, 0+30, etc), but not more than 8h (e.g., no 240+60)
+  def sastify: Boolean =
+    minTotalSeconds <= config.estimateTotalSecondsOver60Moves &&
+      config.estimateTotalSecondsOver60Moves <= maxTotalSeconds
 
 object DbPlayer:
   given Decoder[DbPlayer] = Decoder.forProduct3("e", "d", "be")(DbPlayer.apply)
