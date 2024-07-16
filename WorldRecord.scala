@@ -65,11 +65,21 @@ object GameWatcher:
     val turnsFilter    = Filter.gte("fullDocument.t", 30)
     val standardFilter = Filter.eq("fullDocument.v", 1).or(Filter.notExists("fullDocument.v"))
     val ratedFilter    = Filter.eq("fullDocument.va", true).or(Filter.notExists("fullDocument.va"))
+    val noAiFilter =
+      Filter
+        .eq("fullDocument.p0.ai", 0)
+        .or(Filter.notExists("fullDocument.p0.ai"))
+        .and(Filter.eq("fullDocument.p1.ai", 0).or(Filter.notExists("fullDocument.p1.ai")))
+
+    // Filter games that finished with Mate, Resign, Stalemate, Draw, Outoftime, Timeout
+    // https://github.com/lichess-org/scalachess/blob/master/core/src/main/scala/Status.scala#L18-L23
+    val statusFilter = Filter.in("fullDocument.s", List(30, 31, 32, 33, 34, 35))
 
     val gameFilter = standardFilter
       .and(turnsFilter)
       .and(ratedFilter)
-    // .and(Filter.eq("fullDocument.p0.ai", 0)) // 0 or not exist
+      .and(noAiFilter)
+      .and(statusFilter)
 
     val aggreate =
       Aggregate.matchBy(gameFilter)
