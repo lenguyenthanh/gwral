@@ -111,7 +111,7 @@ object GameWatcher:
       // games have at least 15 moves
       val turnsFilter    = Filter.gte("fullDocument.t", 30)
       val standardFilter = Filter.eq("fullDocument.v", 1).or(Filter.notExists("fullDocument.v"))
-      val ratedFilter    = Filter.eq("fullDocument.va", true).or(Filter.notExists("fullDocument.va"))
+      val ratedFilter    = Filter.eq("fullDocument.ra", true)
       val noAiFilter =
         Filter
           .eq("fullDocument.p0.ai", 0)
